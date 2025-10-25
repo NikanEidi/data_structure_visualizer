@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.vscode-test/
+.idea/
+*.iml
+
+# Logs and temp
+*.log
+*.tmp
+*.swp
+*.swo
+*.orig
+
+# Caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+coverage.xml
+htmlcov/
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/state.json
+
+# Data and uploads
+uploads/
+tmp/
+*.csv
+*.parquet
+
+# Images generated at runtime
+*.png
+*.jpg
+*.jpeg
+
+# Node (if ever added for UI tooling)
+node_modules/
+package-lock.json
+yarn.lock

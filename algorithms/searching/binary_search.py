@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import copy, random, time
 
-from ..graph.graphStyle import CSS, COLORS  # use your shared theme
+from ...components.graphStyle import CSS, COLORS  
 
 SAMPLES = {
     "Sample 1": [1, 3, 5, 7, 9, 11, 13, 15],

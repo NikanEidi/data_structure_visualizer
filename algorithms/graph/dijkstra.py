@@ -3,7 +3,7 @@ import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 import math, copy, random, string, time
-from .graphStyle import CSS, GRAPH_LAYOUT_CONFIG, COLORS
+from ...components.graphStyle import CSS, GRAPH_LAYOUT_CONFIG, COLORS
 
 SAMPLES = {
     "Simple 1": {"A":{"B":4,"C":2},"B":{"A":4,"C":1,"D":5},"C":{"A":2,"B":1,"D":8},"D":{"B":5,"C":8}},

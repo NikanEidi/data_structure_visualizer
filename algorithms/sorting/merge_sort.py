@@ -5,7 +5,7 @@ from matplotlib.patches import Rectangle
 import copy, random, time
 
 
-from algorithms.graph.graphStyle import CSS, COLORS
+from components.graphStyle import CSS, COLORS
 
 SAMPLES = {
     "Sample 1 – Random": [9, 3, 7, 2, 5],

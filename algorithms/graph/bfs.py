@@ -6,7 +6,7 @@ import copy
 import random
 import string
 import time
-from ...components.graphStyle import CSS, COLORS 
+from components.graphStyle import CSS, COLORS
 
 SAMPLES = {
     "Straight Chain": {

@@ -3,8 +3,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import copy, random, time
-
-
 from components.graphStyle import CSS, COLORS
 
 SAMPLES = {

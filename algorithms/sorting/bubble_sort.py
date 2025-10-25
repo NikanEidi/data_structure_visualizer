@@ -3,8 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import copy, random, time
-
-from ...components.graphStyle import CSS, COLORS  
+from components.graphStyle import CSS, COLORS
 
 SAMPLES = {
     "Sample 1 – Nearly Sorted With Tail": [1, 2, 3, 4, 5, 6, 7, 2],

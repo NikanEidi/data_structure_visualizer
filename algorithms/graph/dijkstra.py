@@ -273,7 +273,7 @@ class DijkstraVisualizer:
             ],
             "Visited": ["Yes" if st.session_state[f"{self.ns}_vis"][v] else "No" for v in V]
         })
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
 
     def final_path(self, dst):
         dist = st.session_state[f"{self.ns}_dist"][dst]

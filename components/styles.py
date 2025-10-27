@@ -73,6 +73,7 @@ def load_custom_css():
         background-size:200% 200%;
         -webkit-background-clip:text;
         background-clip:text;
+        /* -webkit-text-fill-color is only supported in WebKit browsers */
         -webkit-text-fill-color:transparent;
         margin-bottom:0.5rem;
         letter-spacing:-0.03em;

@@ -298,7 +298,6 @@ class DFSVisualizer:
         ax2.text(0.02, 0.95, "Step-by-step", fontsize=12, color="#9fb3ff", fontweight="bold", va="top")
         ax2.text(0.02, 0.75, plain_text, fontsize=10, color="#e6ecff", va="top", family="monospace", wrap=True, linespacing=1.5)
         return fig
-
     def _export(self, fmt, fps, V, W, start_v):
         frames = []
         saved = []
@@ -310,9 +309,10 @@ class DFSVisualizer:
             plt.close(fig)
             buf.seek(0)
             frames.append(buf.read())
-        outdir = "exports"; os.makedirs(outdir, exist_ok=True)
+        outdir = "exports"
+        os.makedirs(outdir, exist_ok=True)
         if fmt == "PDF":
-            path = os.path.join(outdir, f"{self.ns}_run.pdf")
+            path = os.path.join(outdir, "dfs_run.pdf")
             with PdfPages(path) as pdf:
                 for s in st.session_state[f"{self.ns}_hist"]:
                     self._restore(s)
@@ -323,18 +323,22 @@ class DFSVisualizer:
         elif fmt in ("GIF", "MP4"):
             import imageio.v2 as imageio
             imgs = [imageio.imread(io.BytesIO(b)) for b in frames]
+
             if fmt == "GIF":
-                path = os.path.join(outdir, f"{self.ns}_run.gif")
-                imageio.mimsave(path, imgs, duration=1 / max(fps, 1))
+                path = os.path.join(outdir, "dfs_run.gif")
+                imageio.mimsave(path, imgs, fps=1.2)
                 saved.append(path)
-            else:
-                path = os.path.join(outdir, f"{self.ns}_run.mp4")
+            elif fmt == "MP4":
+                path = os.path.join(outdir, "dfs_run.mp4")
                 try:
-                    imageio.mimsave(path, imgs, fps=fps, quality=8)
+                    with imageio.get_writer(path, fps=fps, codec='libx264', quality=8) as writer:
+                        for b in frames:
+                            writer.append_data(imageio.imread(io.BytesIO(b)))
                     saved.append(path)
-                except Exception:
-                    fallback = os.path.join(outdir, f"{self.ns}_run.gif")
-                    imageio.mimsave(fallback, imgs, duration=1 / max(fps, 1))
+                except Exception as e:
+                    st.warning(f"MP4 export failed ({e}); exporting as GIF instead.")
+                    fallback = os.path.join(outdir, "dfs_run.gif")
+                    imageio.mimsave(fallback, imgs, fps=1.2)
                     saved.append(fallback)
         return saved
 

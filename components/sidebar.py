@@ -1,203 +1,97 @@
 import streamlit as st
 
+GRAPH_SAMPLES = ["Straight Chain","Simple Branch","Small Cycle","Mini Tree","Cross Path"]
+DIJKSTRA_SAMPLES = ["Tiny Weighted","Triangle 3","Grid 4x4","Random 6"]
+
+ARRAY_SAMPLES = ["Random Small","Sorted","Duplicates","Mixed"]          # Linear Search
+BINARY_SAMPLES = ["Sorted 6","Sorted 10","Near-Duplicates"]             # Binary Search
+
+SORT_SAMPLES = ["Random Small","Nearly Sorted","Reverse","Duplicates"]  # Bubble/Insertion/Merge/Quick
+
 def render_sidebar():
     with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 2rem 0 1rem; margin-bottom: 1rem;">
-            <h2 style="
-                font-size: 2rem !important;
-                font-weight: 900 !important;
-                background: linear-gradient(135deg, #00f5ff 0%, #0066ff 50%, #ff00aa 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: balck;
-                margin: 0 !important;
-                padding: 0 !important;
-                border: none !important;
-                letter-spacing: -0.02em;
-                filter: drop-shadow(0 0 10px rgba(0, 245, 255, 0.5));
-            ">
-                ALGO VISION
-            </h2>
-            <div style="
-                width: 80px;
-                height: 2px;
-                background: linear-gradient(90deg, transparent, #00f5ff, #ff00aa, transparent);
-                margin: 0.75rem auto 0;
-                box-shadow: 0 0 10px rgba(0, 245, 255, 0.6);
-            "></div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="
-            font-size: 0.625rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            color: #00f5ff;
-            margin-bottom: 0.625rem;
-            text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
-        ">
-            Category
-        </div>
-        """, unsafe_allow_html=True)
-        
-        categories = {
-            "Graph Algorithms": ["BFS", "DFS", "Dijkstra"],
-            "Sorting Algorithms": ["Bubble Sort", "Insertion Sort", "Merge Sort", "Quick Sort"],
-            "Searching Algorithms": ["Linear Search", "Binary Search"]
-        }
-        
+        st.markdown(
+            '<div class="sb-logo"><div class="ring"></div>'
+            '<div class="brand">ALGO <span class="accent">VISION</span></div></div>',
+            unsafe_allow_html=True
+        )
+
+        st.markdown('<div class="sb-sec">Category</div>', unsafe_allow_html=True)
         category = st.selectbox(
             "Category",
-            options=list(categories.keys()),
-            key="category_select",
-            label_visibility="collapsed"
+            ["Graph Algorithms","Sorting Algorithms","Searching Algorithms"],
+            index=0, key="sb_cat", label_visibility="collapsed"
         )
-        
-        st.markdown("""
-        <div style="
-            font-size: 0.625rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            color: #00f5ff;
-            margin: 1rem 0 0.625rem 0;
-            text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
-        ">
-            Algorithm
-        </div>
-        """, unsafe_allow_html=True)
-        
+
+        algo_map = {
+            "Graph Algorithms": ["BFS","DFS","Dijkstra"],
+            "Sorting Algorithms": ["Bubble Sort","Insertion Sort","Merge Sort","Quick Sort"],
+            "Searching Algorithms": ["Linear Search","Binary Search"],
+        }
+        st.markdown('<div class="sb-sec">Algorithm</div>', unsafe_allow_html=True)
         algorithm = st.selectbox(
             "Algorithm",
-            options=categories[category],
-            key="algorithm_select",
-            label_visibility="collapsed"
+            algo_map[category],
+            index=0, key="sb_algo", label_visibility="collapsed"
         )
-        
-        st.markdown('<div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(0, 245, 255, 0.3), transparent); margin: 1.25rem 0;"></div>', unsafe_allow_html=True)
-        
-        algorithm_info = {
-            "Linear Search": {
-                "desc": "Sequentially checks each element until the target is found or the list ends.",
-                "complexity": "O(n)",
-                "color": "#0066ff",
-                "type": "Search",
-                
-            },
-            "Binary Search": {
-                "desc": "Repeatedly divides a sorted list in half to find the target efficiently.",
-                "complexity": "O(log n)",
-                "color": "#39ff14",
-                "type": "Search",
-               
-            },
-            "Bubble Sort": {
-                "desc": "Repeatedly swaps adjacent elements if they are in the wrong order.",
-                "complexity": "O(n²)",
-                "color": "#ff6b35",
-                "type": "Sort",
-               
-            },
-            "Insertion Sort": {
-                "desc": "Builds a sorted list by inserting each new element in the correct position.",
-                "complexity": "O(n²)",
-                "color": "#ff6b35",
-                "type": "Sort",
-               
-            },
-            "Merge Sort": {
-                "desc": "Divides the list into halves, sorts them, and merges the sorted halves.",
-                "complexity": "O(n log n)",
-                "color": "#39ff14",
-                "type": "Sort",
-               
-            },
-            "Quick Sort": {
-                "desc": "Picks a pivot and partitions the list, recursively sorting the partitions.",
-                "complexity": "O(n log n)",
-                "color": "#39ff14",
-                "type": "Sort",
-                
-            },
-            "BFS": {
-                "desc": "Explores graph level by level from the starting node.",
-                "complexity": "O(V + E)",
-                "color": "#00f5ff",
-                "type": "Graph",
-               
-            },
-            "DFS": {
-                "desc": "Explores as far as possible along each branch before backtracking.",
-                "complexity": "O(V + E)",
-                "color": "#00f5ff",
-                "type": "Graph",
-                
-            },
-            "Dijkstra": {
-                "desc": "Finds the shortest path in a graph with non-negative edge weights.",
-                "complexity": "O(E + V log V)",
-                "color": "#00f5ff",
-                "type": "Graph",
-                
-            }
+
+        is_graph = (category == "Graph Algorithms")
+        source_title = "Graph source" if is_graph else "Array source"
+        st.markdown(f'<div class="sb-sec">{source_title}</div>', unsafe_allow_html=True)
+
+        source = st.radio(
+            "Source",
+            ["Sample graph","Build your own"],               # مقادیر ثابت برای سازگاری با بقیه کدها
+            key="sb_src", horizontal=False, label_visibility="collapsed"
+        )
+
+        samples_map = {
+            ("Graph Algorithms","BFS"): GRAPH_SAMPLES,
+            ("Graph Algorithms","DFS"): GRAPH_SAMPLES,
+            ("Graph Algorithms","Dijkstra"): DIJKSTRA_SAMPLES,
+            ("Searching Algorithms","Linear Search"): ARRAY_SAMPLES,
+            ("Searching Algorithms","Binary Search"): BINARY_SAMPLES,
+            ("Sorting Algorithms","Bubble Sort"): SORT_SAMPLES,
+            ("Sorting Algorithms","Insertion Sort"): SORT_SAMPLES,
+            ("Sorting Algorithms","Merge Sort"): SORT_SAMPLES,
+            ("Sorting Algorithms","Quick Sort"): SORT_SAMPLES,
         }
-        
-        if algorithm in algorithm_info:
-            info = algorithm_info[algorithm]
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg, rgba(5, 5, 10, 0.95) 0%, rgba(15, 15, 25, 0.98) 100%);
-                border: 1px solid {info['color']}40;
-                border-left: 3px solid {info['color']};
-                border-radius: 1rem;
-                padding: 1.5rem;
-                margin: 1rem 0;
-                backdrop-filter: blur(20px);
-                box-shadow: 0 0 20px {info['color']}30, 0 4px 20px rgba(0, 0, 0, 0.5);
-            ">
-                <div style="
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    margin-bottom: 1rem;
-                ">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="
-                            font-size: 0.625rem;
-                            font-weight: 700;
-                            text-transform: uppercase;
-                            letter-spacing: 0.1em;
-                            color: {info['color']};
-                            text-shadow: 0 0 10px {info['color']}80;
-                        ">
-                            {info['type']}
-                        </span>
-                    </div>
-                    <span style="
-                        font-size: 0.9375rem;
-                        font-weight: 800;
-                        color: {info['color']};
-                        font-family: 'JetBrains Mono', monospace;
-                        padding: 0.375rem 0.75rem;
-                        background: {info['color']}15;
-                        border-radius: 0.5rem;
-                        border: 1px solid {info['color']}40;
-                        text-shadow: 0 0 10px {info['color']}80;
-                    ">
-                        {info['complexity']}
-                    </span>
-                </div>
-                <div style="
-                    font-size: 0.875rem;
-                    color: #e0e0ff;
-                    line-height: 1.6;
-                    font-weight: 400;
-                ">
-                    {info['desc']}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        return category, algorithm
+
+        if source == "Sample graph":
+            opts = samples_map.get((category, algorithm), [])
+            if opts:
+                if st.session_state.get("sb_sample") not in opts:
+                    st.session_state["sb_sample"] = opts[0]
+                sample_label = "Sample"  # لیبل ساده، اما لیست‌ها بر اساس نوع الگوریتم تغییر می‌کنند
+                st.selectbox(
+                    sample_label, opts,
+                    index=opts.index(st.session_state.get("sb_sample", opts[0])),
+                    key="sb_sample", label_visibility="collapsed"
+                )
+            else:
+                st.session_state["sb_sample"] = ""
+        else:
+            st.session_state["sb_sample"] = ""
+
+        auto = st.checkbox("Auto-Play", value=st.session_state.get("sb_auto", False), key="sb_auto")
+        speed = st.slider("Speed (sec/step)", 0.2, 2.5, st.session_state.get("sb_speed", 0.8), 0.1, key="sb_speed")
+
+        st.markdown('<div class="sb-sec">Algorithm Controls</div>', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        next_clicked = c1.button("Next", key="sb_next", use_container_width=True)
+        back_clicked = c2.button("Back", key="sb_back", use_container_width=True)
+        reset_clicked = c3.button("Reset", key="sb_reset", use_container_width=True)
+
+        st.markdown('<div class="sb-sec">Export</div>', unsafe_allow_html=True)
+        fmt = st.selectbox(
+            "Format", ["GIF","MP4","PDF"],
+            index=["GIF","MP4","PDF"].index(st.session_state.get("sb_fmt","GIF")),
+            key="sb_fmt", label_visibility="collapsed"
+        )
+        fps = st.slider("FPS", 1, 12, st.session_state.get("sb_fps", 6), 1, key="sb_fps")
+        export_clicked = st.button("Export", key="sb_export", use_container_width=True)
+
+        return (
+            category, algorithm, source, st.session_state.get("sb_sample",""),
+            fmt, fps, next_clicked, back_clicked, reset_clicked, export_clicked
+        )

@@ -1,292 +1,506 @@
 import streamlit as st
 import pandas as pd
-import networkx as nx
 import matplotlib.pyplot as plt
-import math, copy, random, string, time
-from components.graphStyle import CSS, GRAPH_LAYOUT_CONFIG, COLORS
+import networkx as nx
+import numpy as np
+import time, copy, random, string, io, os
+from matplotlib.backends.backend_pdf import PdfPages
+from components.graphStyle import COLORS, GRAPH_LAYOUT_CONFIG
 
-SAMPLES = {
-    "Simple 1": {"A":{"B":4,"C":2},"B":{"A":4,"C":1,"D":5},"C":{"A":2,"B":1,"D":8},"D":{"B":5,"C":8}},
-    "Simple 2": {"S":{"A":6,"B":2},"A":{"S":6,"C":3},"B":{"S":2,"C":1},"C":{"A":3,"B":1,"D":5},"D":{"C":5}},
-    "Triangle": {"X":{"Y":3,"Z":5},"Y":{"X":3,"Z":2},"Z":{"X":5,"Y":2}}
+try:
+    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+    AG_OK = True
+except Exception:
+    AG_OK = False
+
+SAMPLES_W = {
+    "Straight Chain": {"A":[("B",2)],"B":[("C",4)],"C":[("D",1)],"D":[]},
+    "Simple Branch": {"A":[("B",3),("C",5)],"B":[("D",2)],"C":[],"D":[]},
+    "Small Cycle": {"A":[("B",1)],"B":[("C",2)],"C":[("A",4)]},
+    "Mini Tree": {"Root":[("L1",2),("R1",3)],"L1":[("L2",4)],"R1":[("R2",1)],"L2":[],"R2":[]},
+    "Cross Path": {"P":[("Q",2),("R",6)],"Q":[("R",1)],"R":[("S",2)],"S":[]}
 }
 
 class DijkstraVisualizer:
     def __init__(self):
-        self.ns = "dij"
+        self.ns = "dijkstra"
 
-    def render(self):
-        st.markdown(CSS, unsafe_allow_html=True)
-        st.markdown('<h2 class="section-header">Graph Configuration</h2>', unsafe_allow_html=True)
-
-        mode = st.sidebar.radio("Input mode:", ["Use sample graph", "Build your own"], key=f"{self.ns}_mode")
-        if mode == "Use sample graph":
-            sample = st.sidebar.selectbox("Select sample:", list(SAMPLES.keys()), key=f"{self.ns}_sample")
-            base = SAMPLES[sample]
-            V = list(base.keys())
-            W = pd.DataFrame(0.0, index=V, columns=V)
-            for u, nbrs in base.items():
-                for v, w in nbrs.items():
+    def _sample_df(self, name):
+        base = SAMPLES_W[name]
+        V = list(base.keys())
+        W = pd.DataFrame(0.0, index=V, columns=V, dtype=float)
+        for u, neis in base.items():
+            for v,w in neis:
+                if u in V and v in V:
                     W.loc[u, v] = float(w)
                     W.loc[v, u] = float(w)
-            gkey = f"sample::{sample}"
-        else:
-            n = st.sidebar.slider("Number of vertices", 2, 8, 4, key=f"{self.ns}_n")
-            V = list(string.ascii_uppercase[:n])
-            M = pd.DataFrame(0.0, index=V, columns=V)
-            for i, u in enumerate(V):
-                for j, v in enumerate(V):
-                    if i != j and random.random() > 0.5:
-                        w = float(random.randint(1, 9))
-                        M.loc[u, v] = w
-                        M.loc[v, u] = w
-            W = M
-            gkey = f"custom::{','.join(V)}"
+        for i,v in enumerate(V):
+            W.iloc[i,i] = 0.0
+        return W
 
-        src = st.sidebar.selectbox("Source vertex:", V, key=f"{self.ns}_src")
-        dst = st.sidebar.selectbox("Destination vertex:", V, key=f"{self.ns}_dst")
-        st.sidebar.markdown("---")
-        auto = st.sidebar.checkbox("Auto-Play", value=False, key=f"{self.ns}_auto")
-        speed = st.sidebar.slider("Speed (seconds per step)", 0.5, 3.0, 1.0, 0.1, key=f"{self.ns}_speed")
+    def _sanitize_weights(self, df):
+        df = pd.DataFrame(df).copy()
+        cols = [c for c in df.columns if not str(c).startswith("::")]
+        df = df.loc[:, cols]
+        idx = df.index.astype(str).tolist()
+        cols = pd.Index(df.columns).astype(str).tolist()
+        V = sorted(set(idx) | set(cols))
+        if len(V) == 0:
+            return pd.DataFrame(0.0, index=[], columns=[])
+        df.index = pd.Index(df.index).astype(str)
+        df.columns = pd.Index(df.columns).astype(str)
+        M = df.reindex(index=V, columns=V)
+        M = pd.to_numeric(M.stack(), errors="coerce").unstack()
+        M = M.replace([np.inf, -np.inf], 0).fillna(0.0)
+        M = M.clip(lower=0.0)
+        for i, v in enumerate(V):
+            M.iloc[i, i] = 0.0
+        M = np.minimum(M, M.T)
+        return M.astype(float)
 
-        st.markdown('<h2 class="section-header">Weight Matrix</h2>', unsafe_allow_html=True)
-        st.dataframe(W.astype(float), use_container_width=True)
-
-        Gtab = {u: {} for u in V}
-        for u in V:
-            for v in V:
-                if u == v:
-                    continue
-                w = float(W.loc[u, v])
-                if w > 0:
-                    Gtab[u][v] = w
-
-        def push():
-            st.session_state[f"{self.ns}_hist"].append(copy.deepcopy({
-                "dist": st.session_state[f"{self.ns}_dist"],
-                "prev": st.session_state[f"{self.ns}_prev"],
-                "vis": st.session_state[f"{self.ns}_vis"],
-                "cur": st.session_state[f"{self.ns}_cur"],
-                "exp": st.session_state[f"{self.ns}_exp"],
-                "edges": st.session_state[f"{self.ns}_edges"],
-                "fin": st.session_state[f"{self.ns}_fin"],
-                "step": st.session_state[f"{self.ns}_step"],
-            }))
-
-        def restore(s):
-            st.session_state[f"{self.ns}_dist"] = copy.deepcopy(s["dist"])
-            st.session_state[f"{self.ns}_prev"] = copy.deepcopy(s["prev"])
-            st.session_state[f"{self.ns}_vis"] = copy.deepcopy(s["vis"])
-            st.session_state[f"{self.ns}_cur"] = s["cur"]
-            st.session_state[f"{self.ns}_exp"] = s["exp"]
-            st.session_state[f"{self.ns}_edges"] = copy.deepcopy(s["edges"])
-            st.session_state[f"{self.ns}_fin"] = s["fin"]
-            st.session_state[f"{self.ns}_step"] = s["step"]
-
-        def init_state():
-            st.session_state[f"{self.ns}_dist"] = {v: (0 if v == src else math.inf) for v in V}
+    def _ensure_state(self, V, start_v, gkey):
+        tag = f"{self.ns}_inited"
+        if (not st.session_state.get(tag)) or st.session_state.get(f"{self.ns}_gkey") != gkey or st.session_state.get(f"{self.ns}_start") != start_v:
+            st.session_state[f"{self.ns}_visited"] = {v: False for v in V}
+            st.session_state[f"{self.ns}_dist"] = {v: (0.0 if v == start_v else float('inf')) for v in V}
             st.session_state[f"{self.ns}_prev"] = {v: None for v in V}
-            st.session_state[f"{self.ns}_vis"] = {v: False for v in V}
-            st.session_state[f"{self.ns}_cur"] = src
-            st.session_state[f"{self.ns}_fin"] = False
+            st.session_state[f"{self.ns}_current"] = None
+            st.session_state[f"{self.ns}_order"] = []
             st.session_state[f"{self.ns}_edges"] = []
-            st.session_state[f"{self.ns}_exp"] = f'<div class="step-header">[INITIALIZATION]</div><div class="step-info">Start at {src}. Distance({src}) = 0, others = ∞.</div>'
+            st.session_state[f"{self.ns}_tree_edges"] = set()
+            st.session_state[f"{self.ns}_step"] = 0
+            st.session_state[f"{self.ns}_exp"] = f'''<div class="step-content">
+<div class="step-header">Initialization</div>
+<div class="action">Start from <span class="vertex">{start_v if start_v else 'N/A'}</span></div>
+<div class="action">Set d[start]=0 and d[others]=∞</div>
+</div>'''
+            st.session_state[f"{self.ns}_fin"] = False
             st.session_state[f"{self.ns}_hist"] = []
             st.session_state[f"{self.ns}_gkey"] = gkey
-            st.session_state[f"{self.ns}_src_val"] = src
-            st.session_state[f"{self.ns}_dst_val"] = dst
-            st.session_state[f"{self.ns}_step"] = 0
-            push()
+            st.session_state[f"{self.ns}_start"] = start_v
+            st.session_state[tag] = True
+            self._push()
 
-        def step_dijkstra():
-            if st.session_state[f"{self.ns}_fin"]:
-                return
-            dist = st.session_state[f"{self.ns}_dist"]
-            vis = st.session_state[f"{self.ns}_vis"]
-            prev = st.session_state[f"{self.ns}_prev"]
+    def _push(self):
+        h = {
+            "visited": copy.deepcopy(st.session_state[f"{self.ns}_visited"]),
+            "dist": copy.deepcopy(st.session_state[f"{self.ns}_dist"]),
+            "prev": copy.deepcopy(st.session_state[f"{self.ns}_prev"]),
+            "current": st.session_state[f"{self.ns}_current"],
+            "order": copy.deepcopy(st.session_state[f"{self.ns}_order"]),
+            "edges": copy.deepcopy(st.session_state[f"{self.ns}_edges"]),
+            "tree_edges": copy.deepcopy(st.session_state[f"{self.ns}_tree_edges"]),
+            "exp": st.session_state[f"{self.ns}_exp"],
+            "fin": st.session_state[f"{self.ns}_fin"],
+            "step": st.session_state[f"{self.ns}_step"],
+        }
+        st.session_state[f"{self.ns}_hist"].append(h)
 
-            unvisited = {k: v for k, v in dist.items() if not vis[k]}
-            if not unvisited:
-                st.session_state[f"{self.ns}_fin"] = True
-                st.session_state[f"{self.ns}_exp"] += '<div class="completed-text">✓ All vertices visited. Done.</div>'
-                return
+    def _restore(self, s):
+        st.session_state[f"{self.ns}_visited"] = copy.deepcopy(s["visited"])
+        st.session_state[f"{self.ns}_dist"] = copy.deepcopy(s["dist"])
+        st.session_state[f"{self.ns}_prev"] = copy.deepcopy(s["prev"])
+        st.session_state[f"{self.ns}_current"] = s["current"]
+        st.session_state[f"{self.ns}_order"] = copy.deepcopy(s["order"])
+        st.session_state[f"{self.ns}_edges"] = copy.deepcopy(s["edges"])
+        st.session_state[f"{self.ns}_tree_edges"] = copy.deepcopy(s["tree_edges"])
+        st.session_state[f"{self.ns}_exp"] = s["exp"]
+        st.session_state[f"{self.ns}_fin"] = s["fin"]
+        st.session_state[f"{self.ns}_step"] = s["step"]
 
-            st.session_state[f"{self.ns}_step"] += 1
-            u = min(unvisited, key=unvisited.get)
-            st.session_state[f"{self.ns}_cur"] = u
-            vis[u] = True
-
-            lines = [f'<div class="step-header">[STEP {st.session_state[f"{self.ns}_step"]}]</div>']
-            lines.append(f'<div class="step-info">Pick {u} (smallest distance = {dist[u] if dist[u]!=math.inf else "∞"}). Mark visited.</div>')
-            lines.append('<div class="neighbors-header">Relax neighbors:</div>')
-
-            explored = []
-            for v, w in Gtab[u].items():
-                if vis[v]:
-                    lines.append(f'<div class="visited-text">- {v} already visited</div>')
-                    continue
-                nd = dist[u] + w
-                if nd < dist[v]:
-                    dist[v] = nd
-                    prev[v] = u
-                    explored.append((u, v))
-                    lines.append(f'<div class="update-text">- Update {v}: distance = {nd} via {u}</div>')
-                else:
-                    keep_val = dist[v] if dist[v] != math.inf else "∞"
-                    lines.append(f'<div class="keep-text">- Keep {v}: distance = {keep_val}</div>')
-
-            st.session_state[f"{self.ns}_edges"] = explored
-
-            lines.append('<div class="table-header">Current Distances</div>')
-            lines.append('<table class="custom-table"><tr><th>Vertex</th><th>Distance</th><th>Visited</th></tr>')
-            for x in sorted(V):
-                d = dist[x]
-                dstr = str(int(d)) if d != math.inf else "∞"
-                row_class = "visited-row" if vis[x] else "current-row" if x == u else "unvisited-row"
-                lines.append(f'<tr class="{row_class}"><td>{x}</td><td>{dstr}</td><td>{"Yes" if vis[x] else "No"}</td></tr>')
-            lines.append('</table>')
-
-            lines.append('<div class="table-header">Previous Nodes</div>')
-            lines.append('<table class="custom-table"><tr><th>Vertex</th><th>Previous</th></tr>')
-            for x in sorted(V):
-                p = prev[x] if prev[x] else "-"
-                row_class = "visited-row" if vis[x] else "current-row" if x == u else "unvisited-row"
-                lines.append(f'<tr class="{row_class}"><td>{x}</td><td>{p}</td></tr>')
-            lines.append('</table>')
-
-            unvisited = {k: v for k, v in dist.items() if not vis[k]}
-            if not unvisited:
-                st.session_state[f"{self.ns}_fin"] = True
-                lines.append('<div class="completed-text">✓ Finished. All nodes processed.</div>')
-            else:
-                nxt = min(unvisited, key=unvisited.get)
-                st.session_state[f"{self.ns}_cur"] = nxt
-                lines.append(f'<div class="next-step">Next: {nxt}</div>')
-
-            st.session_state[f"{self.ns}_exp"] = "".join(lines)
-
-        if f"{self.ns}_gkey" not in st.session_state:
-            init_state()
-        elif st.session_state[f"{self.ns}_gkey"] != gkey or st.session_state[f"{self.ns}_src_val"] != src or st.session_state[f"{self.ns}_dst_val"] != dst:
-            init_state()
-
-        st.sidebar.markdown("---")
-        c1, c2, c3 = st.sidebar.columns(3)
-        nxt = c1.button("Next Step", use_container_width=True, disabled=st.session_state[f"{self.ns}_fin"])
-        back = c2.button("Back", use_container_width=True, disabled=len(st.session_state[f"{self.ns}_hist"]) <= 1)
-        reset = c3.button("Reset", use_container_width=True)
-
-        if nxt and not st.session_state[f"{self.ns}_fin"]:
-            step_dijkstra(); push()
-        if back and len(st.session_state[f"{self.ns}_hist"]) > 1:
-            st.session_state[f"{self.ns}_hist"].pop()
-            restore(st.session_state[f"{self.ns}_hist"][-1])
-        if reset:
-            init_state()
-
-        st.markdown("---")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Step", st.session_state[f"{self.ns}_step"])
-        m2.metric("Visited", sum(st.session_state[f"{self.ns}_vis"].values()))
-        m3.metric("Remaining", len(V) - sum(st.session_state[f"{self.ns}_vis"].values()))
-        m4.metric("Status", "Complete" if st.session_state[f"{self.ns}_fin"] else "Running")
-
-        st.markdown("---")
-        cL, cR = st.columns([1.4, 1])
-        with cL:
-            st.markdown('<h2 class="section-header">Graph Visualization</h2>', unsafe_allow_html=True)
-            self.draw_graph(V, W, src, dst)
-        with cR:
-            st.markdown('<h2 class="section-header">Distance Table</h2>', unsafe_allow_html=True)
-            self.display_table(V, src)
-            if st.session_state[f"{self.ns}_fin"]:
-                self.final_path(dst)
-
-        st.markdown("---")
-        st.markdown('<h2 class="section-header">Step-by-Step Explanation</h2>', unsafe_allow_html=True)
-        st.markdown(f'<div class="step-card">{st.session_state[f"{self.ns}_exp"]}</div>', unsafe_allow_html=True)
-
-        if st.session_state[f"{self.ns}_fin"]:
-            st.success("Dijkstra finished!")
-
-        if auto and not st.session_state[f"{self.ns}_fin"] and not (nxt or back or reset):
-            step_dijkstra(); push(); time.sleep(speed); st.rerun()
-
-    def draw_graph(self, V, W, src, dst):
-        fig, ax = plt.subplots(figsize=(10, 8))
-        G = nx.Graph()
+    def _graph_from_matrix(self, W):
+        V = list(W.index)
+        G = {u: [] for u in V}
         for u in V:
             for v in V:
-                if u < v and float(W.loc[u, v]) > 0:
-                    G.add_edge(u, v, weight=float(W.loc[u, v]))
-        pos = nx.spring_layout(G, seed=42, k=1.8)
+                if u != v:
+                    try:
+                        w = float(W.loc[u, v])
+                    except Exception:
+                        w = 0.0
+                    if w > 0:
+                        G[u].append((v, w))
+        return G
 
-        colors = []
-        for v in V:
-            if v == src:
-                colors.append(COLORS['source'])
-            elif v == dst and st.session_state[f"{self.ns}_fin"]:
-                colors.append(COLORS['destination'])
-            elif st.session_state[f"{self.ns}_vis"][v]:
-                colors.append(COLORS['visited'])
-            elif v == st.session_state[f"{self.ns}_cur"]:
-                colors.append(COLORS['current'])
-            else:
-                colors.append(COLORS['unvisited'])
+    def _pick_min_unvisited(self, dist, visited):
+        cand = [(v, d) for v, d in dist.items() if not visited[v] and np.isfinite(d)]
+        if not cand:
+            return None
+        cand.sort(key=lambda x: (x[1], x[0]))
+        return cand[0][0]
 
-        edge_colors = []
-        for (u, v) in G.edges():
-            if (u, v) in st.session_state[f"{self.ns}_edges"] or (v, u) in st.session_state[f"{self.ns}_edges"]:
-                edge_colors.append(GRAPH_LAYOUT_CONFIG['edge_color_highlight'])
-            else:
-                edge_colors.append(GRAPH_LAYOUT_CONFIG['edge_color_regular'])
+    def _dijkstra_step(self, G):
+        if st.session_state[f"{self.ns}_fin"]:
+            return
+        visited = st.session_state[f"{self.ns}_visited"]
+        dist = st.session_state[f"{self.ns}_dist"]
+        prev = st.session_state[f"{self.ns}_prev"]
+        u = self._pick_min_unvisited(dist, visited)
+        st.session_state[f"{self.ns}_step"] += 1
+        if u is None:
+            st.session_state[f"{self.ns}_fin"] = True
+            order_str = " → ".join(st.session_state[f"{self.ns}_order"])
+            rows = []
+            for v in sorted(dist.keys()):
+                dv = ("∞" if not np.isfinite(dist[v]) else f"{dist[v]:.2f}")
+                pr = prev[v] if prev[v] is not None else "-"
+                rows.append(f"{v}: d={dv}, prev={pr}")
+            body = "<br>".join(rows)
+            st.session_state[f"{self.ns}_exp"] = f'''<div class="step-content"><div class="step-header">Done</div><div class="completion">✓ No more reachable vertices<br><strong>Process Order:</strong> {order_str}</div><div style="margin-top:0.5rem">{body}</div></div>'''
+            return
+        st.session_state[f"{self.ns}_current"] = u
+        visited[u] = True
+        st.session_state[f"{self.ns}_order"].append(u)
+        new_edges = []
+        exp = [f'<div class="step-content"><div class="step-header">Step {st.session_state[f"{self.ns}_step"]}</div>']
+        exp.append(f'<div class="action">Pick min unvisited: <span class="vertex">{u}</span> with d[{u}]={(dist[u] if np.isfinite(dist[u]) else "∞")}</div>')
+        nbrs = sorted(G.get(u, []), key=lambda x: x[0])
+        if not nbrs:
+            exp.append('<div class="action">No neighbors to relax</div>')
+        else:
+            exp.append('<div style="margin-top:0.5rem">Relaxation:</div>')
+            for v, w in nbrs:
+                if visited[v]:
+                    exp.append(f'<div style="color:var(--text-muted);margin-left:1rem">→ {v} already visited</div>')
+                    continue
+                old = dist[v]
+                cand = (dist[u] + w) if np.isfinite(dist[u]) else float('inf')
+                cond = cand < old
+                if cond:
+                    dist[v] = cand
+                    prev[v] = u
+                    new_edges.append((u, v))
+                    exp.append(f'<div class="action" style="margin-left:1rem">d[{v}] > d[{u}] + w({u},{v}) ⇒ {("∞" if not np.isfinite(old) else f"{old:.2f}")} > {dist[u]:.2f} + {w:.2f} = {cand:.2f} ✓ update d[{v}]={cand:.2f}, prev[{v}]={u}</div>')
+                else:
+                    rhs = (f"{dist[u]:.2f} + {w:.2f} = {cand:.2f}") if np.isfinite(dist[u]) else "∞"
+                    exp.append(f'<div class="action" style="margin-left:1rem;color:var(--text-muted)">d[{v}] ≤ d[{u}] + w({u},{v}) ⇒ {("∞" if not np.isfinite(old) else f"{old:.2f}")} ≤ {rhs} (no update)</div>')
+        st.session_state[f"{self.ns}_edges"] = new_edges
+        st.session_state[f"{self.ns}_tree_edges"] = {(prev[x], x) for x in prev if prev[x] is not None}
+        dv = st.session_state[f"{self.ns}_dist"]
+        rows = []
+        for k in sorted(dv.keys()):
+            dvk = ("∞" if not np.isfinite(dv[k]) else f"{dv[k]:.2f}")
+            pr = prev[k] if prev[k] is not None else "-"
+            rows.append(f"{k}: d={dvk}, prev={pr}")
+        exp.append('<div style="margin-top:0.5rem;color:var(--text-secondary)">Distances/Parents:</div>')
+        exp.append('<div class="action" style="margin-left:1rem">' + "<br>".join(rows) + '</div>')
+        exp.append('</div>')
+        st.session_state[f"{self.ns}_exp"] = "".join(exp)
 
-        nx.draw(
-            G, pos,
-            with_labels=True,
-            node_color=colors,
-            edge_color=edge_colors,
-            node_size=GRAPH_LAYOUT_CONFIG['node_size'],
-            font_weight="bold",
-            ax=ax
-        )
+    def _ag_clean(self, original_df, ag_out):
+        df_out = pd.DataFrame(ag_out.data if hasattr(ag_out, "data") else ag_out)
+        bad = [c for c in df_out.columns if str(c).startswith("::") or c in ("index",)]
+        df_out = df_out.drop(columns=bad, errors="ignore")
+        df_out = df_out.reindex(columns=list(original_df.columns), fill_value=0.0)
+        df_out.index = list(original_df.index)
+        return df_out
 
-        edge_attr = nx.get_edge_attributes(G, "weight")
-        label_map = {e: int(w) for e, w in edge_attr.items()}
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=label_map)
+    def _ag_matrix(self, df):
+        if AG_OK:
+            g = GridOptionsBuilder.from_dataframe(df)
+            g.configure_default_column(editable=True, resizable=True, suppressMenu=True)
+            g.configure_grid_options(domLayout="autoHeight", suppressMovableColumns=True, rowSelection="multiple", rowHeight=36, enableRangeSelection=True)
+            ag_out = AgGrid(df, gridOptions=g.build(), theme="streamlit", height=300, fit_columns_on_grid_load=True, update_mode=GridUpdateMode.VALUE_CHANGED, data_return_mode=DataReturnMode.AS_INPUT, allow_unsafe_jscode=True)
+            cleaned = self._ag_clean(df, ag_out)
+            res = self._sanitize_weights(cleaned)
+        else:
+            raw = st.data_editor(df, height=300, key=f"{self.ns}_editor", use_container_width=True, num_rows="dynamic")
+            res = self._sanitize_weights(raw)
+        return res
 
-        ax.set_facecolor(COLORS['background'])
-        ax.axis("off")
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-    def display_table(self, V, src):
+    def _state_table(self, V):
+        vis = st.session_state[f"{self.ns}_visited"]
+        dist = st.session_state[f"{self.ns}_dist"]
+        prev = st.session_state[f"{self.ns}_prev"]
         df = pd.DataFrame({
             "Vertex": V,
-            f"Dist from {src}": [
-                str(int(st.session_state[f"{self.ns}_dist"][v])) if st.session_state[f"{self.ns}_dist"][v] != math.inf else "∞"
-                for v in V
-            ],
-            "Prev": [
-                st.session_state[f"{self.ns}_prev"][v] if st.session_state[f"{self.ns}_prev"][v] else "-"
-                for v in V
-            ],
-            "Visited": ["Yes" if st.session_state[f"{self.ns}_vis"][v] else "No" for v in V]
+            "Visited": ["✓" if vis.get(v, False) else "-" for v in V],
+            "Dist": [("∞" if not np.isfinite(dist.get(v, float('inf'))) else f"{dist.get(v, float('inf')):.2f}") for v in V],
+            "Prev": [prev.get(v, None) if prev.get(v, None) is not None else "-" for v in V],
         })
-        st.dataframe(df, width='stretch', hide_index=True)
+        if AG_OK:
+            g = GridOptionsBuilder.from_dataframe(df)
+            g.configure_grid_options(domLayout="autoHeight", suppressMovableColumns=True, rowSelection="none", enableSorting=False, rowHeight=34)
+            g.configure_default_column(editable=False, resizable=True)
+            AgGrid(df, gridOptions=g.build(), theme="streamlit", height=240, fit_columns_on_grid_load=True, update_mode=GridUpdateMode.NO_UPDATE, data_return_mode=DataReturnMode.AS_INPUT)
+        else:
+            st.dataframe(df, height=240, use_container_width=True)
 
-    def final_path(self, dst):
-        dist = st.session_state[f"{self.ns}_dist"][dst]
-        if dist == math.inf:
-            st.error("No path exists.")
+    def _html_to_plain(self, html_text):
+        import re
+        text = html_text
+        text = re.sub(r'<div class="step-header">([^<]+)</div>', r'\n\1\n' + '='*40 + '\n', text)
+        text = re.sub(r'<div class="action">([^<]*(?:<span[^>]*>([^<]+)</span>[^<]*)*)</div>', lambda m: '→ ' + re.sub(r'<[^>]+>', '', m.group(1)) + '\n', text)
+        text = re.sub(r'<span class=["\']vertex["\']>([^<]+)</span>', r'[\1]', text)
+        text = re.sub(r'<div class="queue-display">([^<]*(?:<span[^>]*>[^<]+</span>[^<]*)*)</div>', lambda m: '\n' + re.sub(r'<[^>]+>', '', m.group(1)) + '\n', text)
+        text = re.sub(r'<div class="completion">([^<]*(?:<[^>]+>[^<]*)*)</div>', lambda m: '\n' + '='*40 + '\n' + re.sub(r'<[^>]+>', '', m.group(1)) + '\n' + '='*40 + '\n', text)
+        text = re.sub(r'<div[^>]*>([^<]*)</div>', r'\1\n', text)
+        text = re.sub(r'<br\s*/?>', '\n', text)
+        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+        return text.strip()
+
+    def _draw(self, V, W, start_v):
+        if len(V) == 0:
+            st.info("No vertices to display")
             return
-        path = []
-        v = dst
-        while v is not None:
-            path.insert(0, v)
-            v = st.session_state[f"{self.ns}_prev"][v]
-        st.markdown(
-            f'''<div class="path-result-card"><h3>Shortest Path</h3>
-            <p>Path: {' → '.join(path)}</p><p>Total Distance: {int(dist)}</p></div>''',
-            unsafe_allow_html=True
-        ) 
+        fig, ax = plt.subplots(figsize=(7.6, 5.0))
+        fig.patch.set_facecolor(COLORS["background"])
+        Gx = nx.Graph()
+        for u in V:
+            Gx.add_node(u)
+        for u in V:
+            for v in V:
+                try:
+                    on = (u < v) and (float(W.loc[u, v]) > 0)
+                except Exception:
+                    on = False
+                if on:
+                    Gx.add_edge(u, v, weight=float(W.loc[u, v]))
+        pos = nx.spring_layout(Gx, seed=4, k=1.25) if len(Gx) > 1 else {V[0]: (0.5, 0.5)}
+        node_colors = []
+        for v in Gx.nodes():
+            if v == start_v:
+                node_colors.append(COLORS["source"])
+            elif st.session_state[f"{self.ns}_current"] == v and not st.session_state[f"{self.ns}_fin"]:
+                node_colors.append(COLORS["current"])
+            elif st.session_state[f"{self.ns}_visited"].get(v, False):
+                node_colors.append(COLORS["visited"])
+            else:
+                node_colors.append(COLORS["unvisited"])
+        ec, ew = [], []
+        hi = set(st.session_state[f"{self.ns}_edges"]) | set(st.session_state[f"{self.ns}_tree_edges"])
+        for (u, v) in Gx.edges():
+            if (u, v) in hi or (v, u) in hi:
+                ec.append(GRAPH_LAYOUT_CONFIG["edge_color_highlight"])
+                ew.append(GRAPH_LAYOUT_CONFIG["edge_width_highlight"])
+            else:
+                ec.append(GRAPH_LAYOUT_CONFIG["edge_color_regular"])
+                ew.append(GRAPH_LAYOUT_CONFIG["edge_width_regular"])
+        nx.draw_networkx_nodes(Gx, pos, node_color=node_colors, node_size=GRAPH_LAYOUT_CONFIG["node_size"], edgecolors=GRAPH_LAYOUT_CONFIG["node_border_color"], linewidths=GRAPH_LAYOUT_CONFIG["node_border_width"], ax=ax)
+        nx.draw_networkx_labels(Gx, pos, font_size=GRAPH_LAYOUT_CONFIG["font_size"], font_weight=GRAPH_LAYOUT_CONFIG["font_weight"], font_color=GRAPH_LAYOUT_CONFIG["font_color"], ax=ax)
+        for i, e in enumerate(Gx.edges()):
+            nx.draw_networkx_edges(Gx, pos, [e], edge_color=[ec[i]], width=[ew[i]], ax=ax)
+        labels = {(u, v): f'{Gx[u][v]["weight"]:.0f}' if abs(Gx[u][v]["weight"]-round(Gx[u][v]["weight"]))<1e-9 else f'{Gx[u][v]["weight"]:.2f}' for (u, v) in Gx.edges()}
+        nx.draw_networkx_edge_labels(Gx, pos, edge_labels=labels, font_color="#ff6b6b", font_size=GRAPH_LAYOUT_CONFIG["font_size"], ax=ax)
+        ax.set_facecolor(COLORS["background"])
+        ax.axis("off")
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+    def _frame_figure(self, V, W, start_v, step_text):
+        fig = plt.figure(figsize=(8.4, 7.4), layout="constrained")
+        fig.patch.set_facecolor(COLORS["background"])
+        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1])
+        ax = fig.add_subplot(gs[0])
+        Gx = nx.Graph()
+        for u in V:
+            Gx.add_node(u)
+        for u in V:
+            for v in V:
+                try:
+                    on = (u < v) and (float(W.loc[u, v]) > 0)
+                except Exception:
+                    on = False
+                if on:
+                    Gx.add_edge(u, v, weight=float(W.loc[u, v]))
+        pos = nx.spring_layout(Gx, seed=4, k=1.25) if len(Gx) > 1 else ({V[0]: (0.5, 0.5)} if V else {})
+        node_colors = []
+        for v in Gx.nodes():
+            if v == start_v:
+                node_colors.append(COLORS["source"])
+            elif st.session_state[f"{self.ns}_current"] == v and not st.session_state[f"{self.ns}_fin"]:
+                node_colors.append(COLORS["current"])
+            elif st.session_state[f"{self.ns}_visited"].get(v, False):
+                node_colors.append(COLORS["visited"])
+            else:
+                node_colors.append(COLORS["unvisited"])
+        ec, ew = [], []
+        hi = set(st.session_state[f"{self.ns}_edges"]) | set(st.session_state[f"{self.ns}_tree_edges"])
+        for (u, v) in Gx.edges():
+            if (u, v) in hi or (v, u) in hi:
+                ec.append(GRAPH_LAYOUT_CONFIG["edge_color_highlight"])
+                ew.append(GRAPH_LAYOUT_CONFIG["edge_width_highlight"])
+            else:
+                ec.append(GRAPH_LAYOUT_CONFIG["edge_color_regular"])
+                ew.append(GRAPH_LAYOUT_CONFIG["edge_width_regular"])
+        nx.draw_networkx_nodes(Gx, pos, node_color=node_colors, node_size=950, edgecolors="#9aa4d3", linewidths=2, ax=ax)
+        nx.draw_networkx_labels(Gx, pos, font_size=13, font_weight="bold", font_color="#eef3ff", ax=ax)
+        for i, e in enumerate(Gx.edges()):
+            nx.draw_networkx_edges(Gx, pos, [e], edge_color=[ec[i]], width=[ew[i]], ax=ax)
+        labels = {(u, v): f'{Gx[u][v]["weight"]:.0f}' if abs(Gx[u][v]["weight"]-round(Gx[u][v]["weight"]))<1e-9 else f'{Gx[u][v]["weight"]:.2f}' for (u, v) in Gx.edges()}
+        nx.draw_networkx_edge_labels(Gx, pos, edge_labels=labels, font_color="#ff6b6b", font_size=12, ax=ax)
+        ax.set_facecolor(COLORS["background"])
+        ax.set_xticks([]); ax.set_yticks([])
+        ax2 = fig.add_subplot(gs[1])
+        ax2.set_facecolor("#0d1220"); ax2.set_xticks([]); ax2.set_yticks([])
+        plain_text = self._html_to_plain(step_text)
+        ax2.text(0.02, 0.95, "Step-by-step", fontsize=12, color="#9fb3ff", fontweight="bold", va="top")
+        ax2.text(0.02, 0.75, plain_text, fontsize=10, color="#e6ecff", va="top", family="monospace", wrap=True, linespacing=1.5)
+        return fig
+
+    def _export(self, fmt, fps, V, W, start_v):
+        frames = []
+        saved = []
+        for s in st.session_state[f"{self.ns}_hist"]:
+            self._restore(s)
+            fig = self._frame_figure(V, W, start_v, s["exp"])
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=140, facecolor=fig.get_facecolor())
+            plt.close(fig)
+            buf.seek(0)
+            frames.append(buf.read())
+        outdir = "exports"; os.makedirs(outdir, exist_ok=True)
+        if fmt == "PDF":
+            path = os.path.join(outdir, f"{self.ns}_run.pdf")
+            with PdfPages(path) as pdf:
+                for s in st.session_state[f"{self.ns}_hist"]:
+                    self._restore(s)
+                    fig = self._frame_figure(V, W, start_v, s["exp"])
+                    pdf.savefig(fig, facecolor=fig.get_facecolor())
+                    plt.close(fig)
+            saved.append(path)
+        elif fmt in ("GIF", "MP4"):
+            import imageio.v2 as imageio
+            imgs = [imageio.imread(io.BytesIO(b)) for b in frames]
+            if fmt == "GIF":
+                path = os.path.join(outdir, f"{self.ns}_run.gif")
+                imageio.mimsave(path, imgs, duration=1 / max(fps, 1))
+                saved.append(path)
+            else:
+                path = os.path.join(outdir, f"{self.ns}_run.mp4")
+                try:
+                    imageio.mimsave(path, imgs, fps=fps, quality=8)
+                    saved.append(path)
+                except Exception:
+                    fallback = os.path.join(outdir, f"{self.ns}_run.gif")
+                    imageio.mimsave(fallback, imgs, duration=1 / max(fps, 1))
+                    saved.append(fallback)
+        return saved
+
+    def render(self, *payload, **kwargs):
+        s = st.session_state
+        src = s.get("sb_src", "Sample graph")
+        sample = s.get("sb_sample", "Straight Chain")
+        auto = s.get("sb_auto", False)
+        speed = s.get("sb_speed", 0.8)
+        next_clicked = s.get("sb_next", False)
+        back_clicked = s.get("sb_back", False)
+        reset_clicked = s.get("sb_reset", False)
+        export_clicked = s.get("sb_export", False)
+
+        if src == "Sample graph":
+            W = self._sample_df(sample)
+            s.setdefault(f"{self.ns}_matrix_df", W.copy())
+            hint = f"Sample: {sample}. Edit weights (0 = no edge). Symmetry is enforced."
+        else:
+            if f"{self.ns}_matrix_df" not in s:
+                Vnames = list(string.ascii_uppercase[:6])
+                base = pd.DataFrame(0.0, index=Vnames, columns=Vnames, dtype=float)
+                s[f"{self.ns}_matrix_df"] = base.copy()
+            W = s[f"{self.ns}_matrix_df"].copy()
+            hint = "Edit weights (0 = no edge). Use Add/Delete to change vertices. Symmetry is enforced. Nonnegative only."
+
+        W = self._sanitize_weights(W)
+        V = list(W.index)
+        if V and s.get(f"{self.ns}_start_sel") not in V:
+            s[f"{self.ns}_start_sel"] = V[0]
+        sv = s.get(f"{self.ns}_start_sel", V[0] if V else None)
+        gkey = f"{src}::{sample or 'custom'}::{','.join(V)}"
+        self._ensure_state(V, sv if V else None, gkey)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown('<div class="frame-title">Weight Matrix</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="frame-hint">{hint}</div>', unsafe_allow_html=True)
+            if src != "Sample graph":
+                col_add, col_del = st.columns(2)
+                with col_add:
+                    new_vertex = st.text_input("Add vertex", key=f"{self.ns}_add_vertex", placeholder="Enter name")
+                    if st.button("Add Vertex", key=f"{self.ns}_btn_add"):
+                        nv = (new_vertex or "").strip()
+                        if nv and nv not in W.index:
+                            V_new = list(W.index) + [nv]
+                            W2 = pd.DataFrame(0.0, index=V_new, columns=V_new, dtype=float)
+                            W2.loc[W.index, W.columns] = W
+                            s[f"{self.ns}_matrix_df"] = self._sanitize_weights(W2)
+                            s[f"{self.ns}_inited"] = False
+                            st.rerun()
+                with col_del:
+                    if len(list(W.index)) > 1:
+                        del_vertex = st.selectbox("Delete vertex", list(W.index), key=f"{self.ns}_del_vertex")
+                        if st.button("Delete Vertex", key=f"{self.ns}_btn_del"):
+                            if del_vertex in W.index:
+                                W2 = W.drop(index=[del_vertex], columns=[del_vertex])
+                                s[f"{self.ns}_matrix_df"] = self._sanitize_weights(W2)
+                                if s.get(f"{self.ns}_start_sel") == del_vertex:
+                                    left = list(W2.index)
+                                    if left:
+                                        s[f"{self.ns}_start_sel"] = left[0]
+                                s[f"{self.ns}_inited"] = False
+                                st.rerun()
+            W = self._ag_matrix(W)
+            W = self._sanitize_weights(W)
+            s[f"{self.ns}_matrix_df"] = W.copy()
+
+        with col2:
+            st.markdown('<div class="frame-title">Dijkstra State</div>', unsafe_allow_html=True)
+            V = list(W.index)
+            if V and s.get(f"{self.ns}_start_sel") not in V:
+                s[f"{self.ns}_start_sel"] = V[0]
+            sv = st.selectbox("Start vertex", V, index=(0 if V else 0), key=f"{self.ns}_start_sel", disabled=(len(V) == 0), label_visibility="collapsed")
+            gkey = f"{src}::{sample or 'custom'}::{','.join(V)}"
+            self._ensure_state(V, sv if V else None, gkey)
+            if V:
+                self._state_table(V)
+            else:
+                st.info("No vertices available")
+            visited_count = sum(st.session_state.get(f"{self.ns}_visited", {}).values()) if V else 0
+            remaining = (len(V) - visited_count) if V else 0
+            status = "Completed" if st.session_state.get(f"{self.ns}_fin", False) else "Running"
+            cls = "ok" if status == "Completed" else "run"
+            st.markdown(f'''
+            <div class="bfs-meta">
+                <div class="pill"><div class="h">Step</div><div class="v">{st.session_state.get(f"{self.ns}_step", 0)}</div></div>
+                <div class="pill"><div class="h">Visited</div><div class="v">{visited_count}</div></div>
+                <div class="pill"><div class="h">Remaining</div><div class="v">{remaining}</div></div>
+                <div class="pill"><div class="h">Status</div><div class="v {cls}">{status}</div></div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        col3, col4 = st.columns(2)
+        with col3:
+            st.markdown('<div class="frame-title">Graph Visualization</div>', unsafe_allow_html=True)
+            self._draw(list(W.index), W, st.session_state.get(f"{self.ns}_start"))
+            st.markdown('<div class="legend"><span><i style="background:#7c4dff"></i>Source</span><span><i style="background:#34d399"></i>Visited</span><span><i style="background:#f59e0b"></i>Current</span><span><i style="background:#3a3f55"></i>Unvisited</span><span><i style="background:#ff6b6b"></i>Weights</span></div>', unsafe_allow_html=True)
+        with col4:
+            st.markdown('<div class="frame-title">Step-by-Step Explanation</div>', unsafe_allow_html=True)
+            exp_html = st.session_state.get(f'{self.ns}_exp', '')
+            st.markdown(f'<div class="step-explanation">{exp_html}</div>', unsafe_allow_html=True)
+
+        manual = next_clicked or back_clicked or reset_clicked
+        if next_clicked and not st.session_state.get(f"{self.ns}_fin", False) and len(W.index) > 0:
+            G = self._graph_from_matrix(W)
+            self._dijkstra_step(G)
+            self._push()
+            st.rerun()
+        if back_clicked and len(st.session_state.get(f"{self.ns}_hist", [])) > 1:
+            st.session_state[f"{self.ns}_hist"].pop()
+            self._restore(st.session_state[f"{self.ns}_hist"][-1])
+            st.rerun()
+        if reset_clicked:
+            st.session_state[f"{self.ns}_inited"] = False
+            self._ensure_state(list(W.index), st.session_state.get(f"{self.ns}_start_sel"), gkey)
+            st.rerun()
+        if export_clicked and len(st.session_state.get(f"{self.ns}_hist", [])) > 0 and len(W.index) > 0:
+            paths = self._export(st.session_state.get("sb_fmt", "GIF"), max(1, st.session_state.get("sb_fps", 6)), list(W.index), W, st.session_state.get(f"{self.ns}_start"))
+            for p in paths:
+                with open(p, "rb") as f:
+                    st.sidebar.download_button("Download " + p.split("/")[-1], f, file_name=p.split("/")[-1], mime="application/octet-stream")
+        if auto and not st.session_state.get(f"{self.ns}_fin", False) and not manual and len(W.index) > 0:
+            G = self._graph_from_matrix(W)
+            self._dijkstra_step(G)
+            self._push()
+            time.sleep(speed)
+            st.rerun()

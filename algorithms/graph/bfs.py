@@ -359,7 +359,8 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
             plt.close(fig)
             buf.seek(0)
             frames.append(buf.read())
-        outdir = "exports"; os.makedirs(outdir, exist_ok=True)
+        outdir = "exports"
+        os.makedirs(outdir, exist_ok=True)
         if fmt == "PDF":
             path = os.path.join(outdir, "bfs_run.pdf")
             with PdfPages(path) as pdf:
@@ -372,18 +373,22 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
         elif fmt in ("GIF", "MP4"):
             import imageio.v2 as imageio
             imgs = [imageio.imread(io.BytesIO(b)) for b in frames]
+
             if fmt == "GIF":
                 path = os.path.join(outdir, "bfs_run.gif")
-                imageio.mimsave(path, imgs, duration=1 / max(fps, 1))
+                imageio.mimsave(path, imgs, fps=1.2)
                 saved.append(path)
-            else:
+            elif fmt == "MP4":
                 path = os.path.join(outdir, "bfs_run.mp4")
                 try:
-                    imageio.mimsave(path, imgs, fps=fps, quality=8)
+                    with imageio.get_writer(path, fps=fps, codec='libx264', quality=8) as writer:
+                        for b in frames:
+                            writer.append_data(imageio.imread(io.BytesIO(b)))
                     saved.append(path)
-                except Exception:
+                except Exception as e:
+                    st.warning(f"MP4 export failed ({e}); exporting as GIF instead.")
                     fallback = os.path.join(outdir, "bfs_run.gif")
-                    imageio.mimsave(fallback, imgs, duration=1 / max(fps, 1))
+                    imageio.mimsave(fallback, imgs, fps=1.2)
                     saved.append(fallback)
         return saved
 
@@ -467,12 +472,12 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
                                 s[f"{self.ns}_inited"] = False
                                 st.rerun()
 
-            # interactive editor
+            
             W = self._ag_matrix(W)
             W = self._sanitize(W)
             s[f"{self.ns}_matrix_df"] = W.copy()
 
-        # ---------- right: state ----------
+        
         with col2:
             st.markdown('<div class="frame-title">BFS State</div>', unsafe_allow_html=True)
             V = list(W.index)
@@ -507,12 +512,12 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
             </div>
             ''', unsafe_allow_html=True)
 
-        # ---------- bottom: graph + explanation ----------
+        
         col3, col4 = st.columns(2)
 
         with col3:
             st.markdown('<div class="frame-title">Graph Visualization</div>', unsafe_allow_html=True)
-            self._draw(list(W.index), W, st.session_state.get(f"{self.ns}_start"))
+            self._draw(list(W.index), W, sv)
             st.markdown('<div class="legend"><span><i style="background:#7c4dff"></i>Source</span><span><i style="background:#34d399"></i>Visited</span><span><i style="background:#f59e0b"></i>Current</span><span><i style="background:#3a3f55"></i>Unvisited</span></div>', unsafe_allow_html=True)
 
         with col4:

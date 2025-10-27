@@ -363,10 +363,12 @@ class BubbleSortVisualizer:
             if fmt == "GIF":
                 path = os.path.join(outdir, f"{self.ns}_run.gif")
                 imageio.mimsave(path, imgs, duration=1.2)
+                saved.append(path)
             else:
                 path = os.path.join(outdir, f"{self.ns}_run.mp4")
                 try:
                     imageio.mimsave(path, imgs, fps=0.8, quality=8)
+                    saved.append(path) 
                 except Exception:
                     fallback = os.path.join(outdir, f"{self.ns}_run.gif")
                     imageio.mimsave(fallback, imgs, duration=1/max(fps,1)); saved.append(fallback)

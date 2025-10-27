@@ -617,5 +617,26 @@ def load_custom_css():
       ::-webkit-scrollbar-thumb:hover{
         background:linear-gradient(180deg,var(--primary-light),var(--accent-light));
       }
+      /* Force compact AG Grid rendering */
+    [data-testid="stDataFrame"] div[data-testid="stVerticalBlockBorderWrapper"] {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    [data-testid="stDataFrame"] table {
+        border-collapse: collapse !important;
+    }
+
+    [data-testid="stDataFrame"] th, 
+    [data-testid="stDataFrame"] td {
+        padding: 4px 6px !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+    }
+
+    [data-testid="stDataFrame"] {
+        border-radius: 10px !important;
+        overflow: hidden !important;
+        background-color: #0d0d15 !important;
+    }
     </style>
     """, unsafe_allow_html=True)

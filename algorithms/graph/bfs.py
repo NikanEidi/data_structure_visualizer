@@ -25,7 +25,7 @@ class BFSVisualizer:
     def __init__(self):
         self.ns = "bfs"
 
-    # ---------- Utils ----------
+  
     def _sample_df(self, name):
         base = SAMPLES[name]
         V = list(base.keys())

@@ -41,7 +41,7 @@ def render_sidebar():
 
         source = st.radio(
             "Source",
-            ["Sample graph","Build your own"],               # مقادیر ثابت برای سازگاری با بقیه کدها
+            ["Sample graph","Build your own"],         
             key="sb_src", horizontal=False, label_visibility="collapsed"
         )
 
@@ -62,7 +62,7 @@ def render_sidebar():
             if opts:
                 if st.session_state.get("sb_sample") not in opts:
                     st.session_state["sb_sample"] = opts[0]
-                sample_label = "Sample"  # لیبل ساده، اما لیست‌ها بر اساس نوع الگوریتم تغییر می‌کنند
+                sample_label = "Sample" 
                 st.selectbox(
                     sample_label, opts,
                     index=opts.index(st.session_state.get("sb_sample", opts[0])),

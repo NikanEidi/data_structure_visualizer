@@ -392,7 +392,7 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
                     saved.append(fallback)
         return saved
 
-    # ---------- UI / Render ----------
+    
     def render(self, *payload, **kwargs):
         s = st.session_state
         src = s.get("sb_src", "Sample graph")
@@ -404,7 +404,7 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
         reset_clicked = s.get("sb_reset", False)
         export_clicked = s.get("sb_export", False)
 
-        # --- Source selection ---
+        
         if src == "Sample graph":
             W = self._sample_df(sample)
             hint = f"Sample: {sample}. Edit 0/1 to add or remove edges. Symmetry is enforced."
@@ -434,7 +434,7 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
 
         col1, col2 = st.columns(2)
 
-        # ---------- left: matrix + builder ----------
+        
         with col1:
             st.markdown('<div class="frame-title">Adjacency Matrix</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="frame-hint">{hint}</div>', unsafe_allow_html=True)
@@ -456,7 +456,7 @@ Algorithm: Breadth-First Search explores nodes level by level, visiting all neig
                             s[f"{self.ns}_inited"] = False
                             st.rerun()
 
-                # Delete vertex
+               
                 with col_del:
                     if len(list(W.index)) > 1:
                         del_vertex = st.selectbox("Delete vertex", list(W.index), key=f"{self.ns}_del_vertex")

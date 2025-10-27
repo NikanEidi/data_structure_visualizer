@@ -67,31 +67,31 @@ class BubbleSortVisualizer:
             "    if not swapped: break",
         ]
         if stage == "start":
-            hi = {0,1}
+            hi = {0, 1}
         elif stage == "compare":
-            hi = {2,3}
+            hi = {2, 3}
         elif stage == "swap":
-            hi = {3,4,5}
-        elif stage == "end_pass":
-            hi = {6}
-        elif stage == "done":
+            hi = {3, 4, 5}
+        elif stage in ("end_pass", "done"):
             hi = {6}
         else:
             hi = set()
-        out = []
+
+        text_lines = []
         for k, L in enumerate(lines):
-            esc = html.escape(L)
-            if k in hi:
-                line = f"▶ <span style='background:#1f2a4a;border-radius:4px;padding:0 4px'>{esc}</span>"
-            else:
-                line = f"&nbsp; {esc}"
-            out.append(line)
-        ex = []
-        if i is not None: ex.append(f"i = {i}")
-        if j is not None: ex.append(f"j = {j}")
-        if swapped: ex.append("swapped = True")
-        info = "" if not ex else f"<div style='margin-top:0.25rem;color:#9fb3ff'>{' , '.join(ex)}</div>"
-        return "<pre style='margin:0;white-space:pre-wrap'><code>" + "\n".join(out) + "</code></pre>" + info
+            prefix = "▶ " if k in hi else "  "
+            text_lines.append(prefix + str(L))
+
+        code_text = "\n".join(text_lines)
+        code_html = "<pre style='margin:0;white-space:pre-wrap;font-family:monospace'><code>" + html.escape(code_text) + "</code></pre>"
+
+        extras = []
+        if i is not None: extras.append(f"i = {i}")
+        if j is not None: extras.append(f"j = {j}")
+        if swapped: extras.append("swapped = True")
+        footer = "" if not extras else "<div style='margin-top:0.25rem;color:#9fb3ff'>" + " , ".join(extras) + "</div>"
+
+        return code_html + footer
 
     def _exp_init(self, A):
         n = len(A)
@@ -362,11 +362,11 @@ class BubbleSortVisualizer:
             imgs = [imageio.imread(io.BytesIO(b)) for b in frames]
             if fmt == "GIF":
                 path = os.path.join(outdir, f"{self.ns}_run.gif")
-                imageio.mimsave(path, imgs, duration=1/max(fps,1)); saved.append(path)
+                imageio.mimsave(path, imgs, duration=1.2)
             else:
                 path = os.path.join(outdir, f"{self.ns}_run.mp4")
                 try:
-                    imageio.mimsave(path, imgs, fps=fps, quality=8); saved.append(path)
+                    imageio.mimsave(path, imgs, fps=0.8, quality=8)
                 except Exception:
                     fallback = os.path.join(outdir, f"{self.ns}_run.gif")
                     imageio.mimsave(fallback, imgs, duration=1/max(fps,1)); saved.append(fallback)
